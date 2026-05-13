@@ -294,7 +294,12 @@
 
       <!-- REPORTS -->
       <div id="page-reports" class="page">
-        <div class="page-header"><h2>Reports</h2><p>Live academic summary based on your entered data</p></div>
+        <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+          <div><h2>Reports</h2><p>Live academic summary based on your entered data</p></div>
+          <button class="download-btn" style="background:var(--green);color:#fff;border-color:var(--green);margin-top:0;width:auto;padding:10px 20px;" onclick="downloadPDF('all')">
+            <i class="fas fa-file-download"></i> Download All Reports
+          </button>
+        </div>
         <div class="reports-grid">
           <div class="report-card">
             <h3><i class="fas fa-chart-bar" style="color:#1D9E75;"></i> Academic Summary</h3>
@@ -303,25 +308,25 @@
             <div class="report-stat"><span class="key">Needs Attention</span><span class="val" id="rpt-worst">—</span></div>
             <div class="report-stat"><span class="key">Subjects Enrolled</span><span class="val" id="rpt-count">0</span></div>
             <div class="report-stat"><span class="key">Academic Standing</span><span class="val" id="rpt-standing">—</span></div>
-            <button class="download-btn" onclick="alert('PDF download coming soon!')"><i class="fas fa-download"></i> Download PDF</button>
+            <button class="download-btn" onclick="downloadPDF('academic')"><i class="fas fa-download"></i> Download PDF</button>
           </div>
           <div class="report-card">
             <h3><i class="fas fa-list-ul" style="color:#378ADD;"></i> Subject Breakdown</h3>
             <div id="rpt-subject-list"><p style="font-size:13px;color:var(--text-muted);padding:8px 0;">No subjects added yet.</p></div>
-            <button class="download-btn" onclick="alert('PDF download coming soon!')"><i class="fas fa-download"></i> Download PDF</button>
+            <button class="download-btn" onclick="downloadPDF('subjects')"><i class="fas fa-download"></i> Download PDF</button>
           </div>
           <div class="report-card">
             <h3><i class="fas fa-star" style="color:#EF9F27;"></i> Interests &amp; Strengths</h3>
             <div class="report-stat"><span class="key">Interests</span><span class="val" id="rpt-interests" style="font-size:12px;text-align:right;max-width:180px;">—</span></div>
             <div class="report-stat"><span class="key">Strengths</span><span class="val" id="rpt-strengths" style="font-size:12px;text-align:right;max-width:180px;">—</span></div>
-            <button class="download-btn" onclick="alert('PDF download coming soon!')"><i class="fas fa-download"></i> Download PDF</button>
+            <button class="download-btn" onclick="downloadPDF('interests')"><i class="fas fa-download"></i> Download PDF</button>
           </div>
           <div class="report-card">
             <h3><i class="fas fa-robot" style="color:#7F77DD;"></i> AI Recommendation Log</h3>
             <div class="report-stat"><span class="key">Recommendations Run</span><span class="val" id="rpt-ai-count">0</span></div>
             <div class="report-stat"><span class="key">Last Run</span><span class="val" id="rpt-ai-last">Never</span></div>
             <div class="report-stat"><span class="key">Career Paths Mapped</span><span class="val">3 per analysis</span></div>
-            <button class="download-btn" onclick="alert('PDF download coming soon!')"><i class="fas fa-download"></i> Download PDF</button>
+            <button class="download-btn" onclick="downloadPDF('ailog')"><i class="fas fa-download"></i> Download PDF</button>
           </div>
         </div>
       </div>

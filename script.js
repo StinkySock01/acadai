@@ -721,3 +721,184 @@ window.addEventListener('load', () => {
   aiRunCount = getUserData('ai_count', 0);
   lastAIRun = getUserData('ai_last', null);
 });
+
+
+
+function downloadPDF(type) {
+  const user = getSession();
+  const subjects = getSubjects();
+  const gwa = computeGWA(subjects);
+  const gwaNum = gwa ? parseFloat(gwa) : null;
+  const interests = [...document.querySelectorAll('#interests-tags .tag.selected')]
+    .map(t => (t.dataset.label || t.textContent.replace('×','').trim()));
+  const strengths = [...document.querySelectorAll('#strengths-tags .tag.selected')]
+    .map(t => (t.dataset.label || t.textContent.replace('×','').trim()));
+  const aiCount = getUserData('ai_count', 0);
+  const aiLast  = getUserData('ai_last', 'Never');
+  const now     = new Date().toLocaleDateString('en-PH', {year:'numeric',month:'long',day:'numeric'});
+  const name    = user ? `${user.firstName} ${user.lastName}` : 'Student';
+  const course  = user?.course || '—';
+  const year    = user?.year || '—';
+  const sid     = user?.studentId || '—';
+
+  function standingLabel(g) {
+    if (!g) return '—';
+    if (g <= 1.75) return "Dean's List 🏅";
+    if (g <= 2.5)  return 'Good Standing';
+    if (g <= 3.0)  return 'Average Standing';
+    return 'Academic Alert';
+  }
+
+  function remarkLabel(g) {
+    if (g === 5.0)  return 'Failed';
+    if (g <= 1.5)   return 'Excellent';
+    if (g <= 2.0)   return 'Good';
+    if (g <= 2.75)  return 'Average';
+    return 'Poor';
+  }
+
+  function subjectRows() {
+    if (!subjects.length) return '<tr><td colspan="5" style="text-align:center;color:#888;padding:16px;">No subjects added yet.</td></tr>';
+    return subjects.map(s => {
+      const g = s.pct !== '' ? pctToGWA(s.pct) : null;
+      return `<tr>
+        <td>${s.name}</td>
+        <td style="text-align:center;">${s.units}</td>
+        <td style="text-align:center;">${s.pct !== '' ? s.pct + '%' : '—'}</td>
+        <td style="text-align:center;font-weight:600;color:${g ? gradeColor(g) : '#888'}">${g || '—'}</td>
+        <td style="text-align:center;">${g ? remarkLabel(g) : '—'}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  const graded = subjects.filter(s => s.pct !== '');
+  const bestSubject = graded.length ? graded.reduce((a,b) => b.pct > a.pct ? b : a) : null;
+  const worstSubject = graded.length ? graded.reduce((a,b) => b.pct < a.pct ? b : a) : null;
+
+  const sections = {
+    academic: `
+      <div class="pdf-section">
+        <h2><span class="icon">📊</span> Academic Summary</h2>
+        <table class="info-table">
+          <tr><td>Current GWA</td><td class="val" style="color:#1D9E75;font-size:20px;font-weight:700;">${gwa || '—'}</td></tr>
+          <tr><td>Academic Standing</td><td class="val">${standingLabel(gwaNum)}</td></tr>
+          <tr><td>Subjects Enrolled</td><td class="val">${subjects.length}</td></tr>
+          <tr><td>Best Subject</td><td class="val">${bestSubject ? bestSubject.name + ' (' + pctToGWA(bestSubject.pct) + ')' : '—'}</td></tr>
+          <tr><td>Needs Attention</td><td class="val">${worstSubject ? worstSubject.name + ' (' + pctToGWA(worstSubject.pct) + ')' : '—'}</td></tr>
+          <tr><td>Date Generated</td><td class="val">${now}</td></tr>
+        </table>
+      </div>`,
+
+    subjects: `
+      <div class="pdf-section">
+        <h2><span class="icon">📚</span> Subject Breakdown</h2>
+        <table class="grade-table">
+          <thead><tr><th>Subject</th><th>Units</th><th>Score</th><th>GWA Grade</th><th>Remark</th></tr></thead>
+          <tbody>${subjectRows()}</tbody>
+          <tfoot>
+            <tr>
+              <td colspan="3" style="text-align:right;font-weight:600;">Computed GWA:</td>
+              <td colspan="2" style="font-weight:700;font-size:16px;color:#1D9E75;">${gwa || '—'}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>`,
+
+    interests: `
+      <div class="pdf-section">
+        <h2><span class="icon">⭐</span> Interests &amp; Strengths</h2>
+        <table class="info-table">
+          <tr><td>Interests</td><td class="val">${interests.join(', ') || '—'}</td></tr>
+          <tr><td>Strengths</td><td class="val">${strengths.join(', ') || '—'}</td></tr>
+        </table>
+      </div>`,
+
+    ailog: `
+      <div class="pdf-section">
+        <h2><span class="icon">🤖</span> AI Recommendation Log</h2>
+        <table class="info-table">
+          <tr><td>Recommendations Run</td><td class="val">${aiCount}</td></tr>
+          <tr><td>Last Run</td><td class="val">${aiLast}</td></tr>
+          <tr><td>Career Paths Mapped</td><td class="val">3 per analysis</td></tr>
+          <tr><td>Date Generated</td><td class="val">${now}</td></tr>
+        </table>
+      </div>`
+  };
+
+  let body = '';
+  let title = '';
+  if (type === 'all') {
+    body = sections.academic + sections.subjects + sections.interests + sections.ailog;
+    title = 'Complete Academic Report';
+  } else {
+    body = sections[type];
+    const titles = {
+      academic: 'Academic Summary',
+      subjects: 'Subject Breakdown',
+      interests: 'Interests & Strengths',
+      ailog: 'AI Recommendation Log'
+    };
+    title = titles[type];
+  }
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8"/>
+  <title>AcadAI — ${title}</title>
+  <style>
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body { font-family:'Segoe UI',Arial,sans-serif; color:#1A1A2E; background:#fff; padding:40px; font-size:14px; }
+    .pdf-header { display:flex; align-items:center; justify-content:space-between; padding-bottom:20px; border-bottom:3px solid #1D9E75; margin-bottom:28px; }
+    .pdf-logo { display:flex; align-items:center; gap:10px; font-size:22px; font-weight:700; }
+    .pdf-logo .dot { width:12px; height:12px; border-radius:50%; background:#1D9E75; }
+    .pdf-meta { text-align:right; font-size:12px; color:#6B7280; }
+    .pdf-meta strong { display:block; font-size:14px; color:#1A1A2E; }
+    .student-bar { background:#f0f9f5; border:1px solid #b6ecd8; border-radius:10px; padding:14px 20px; margin-bottom:28px; display:flex; gap:32px; flex-wrap:wrap; }
+    .student-bar .item { display:flex; flex-direction:column; }
+    .student-bar .label { font-size:11px; color:#6B7280; font-weight:600; text-transform:uppercase; letter-spacing:.5px; }
+    .student-bar .value { font-size:14px; font-weight:600; color:#1A1A2E; margin-top:2px; }
+    .pdf-section { margin-bottom:32px; page-break-inside:avoid; }
+    .pdf-section h2 { font-size:16px; font-weight:700; color:#1D9E75; margin-bottom:14px; display:flex; align-items:center; gap:8px; padding-bottom:8px; border-bottom:1px solid #e2e4ea; }
+    .info-table { width:100%; border-collapse:collapse; }
+    .info-table tr { border-bottom:1px solid #f0f1f5; }
+    .info-table td { padding:10px 12px; font-size:13px; }
+    .info-table td:first-child { color:#6B7280; width:200px; }
+    .info-table .val { font-weight:600; color:#1A1A2E; }
+    .grade-table { width:100%; border-collapse:collapse; font-size:13px; }
+    .grade-table th { background:#f0f9f5; color:#0F6E56; font-weight:600; padding:10px 12px; text-align:left; border-bottom:2px solid #b6ecd8; }
+    .grade-table td { padding:10px 12px; border-bottom:1px solid #f0f1f5; }
+    .grade-table tbody tr:nth-child(even) { background:#fafafa; }
+    .grade-table tfoot td { background:#f0f9f5; padding:12px; border-top:2px solid #b6ecd8; }
+    .pdf-footer { margin-top:40px; padding-top:16px; border-top:1px solid #e2e4ea; display:flex; justify-content:space-between; font-size:11px; color:#9CA3AF; }
+    @media print { body { padding:20px; } .pdf-section { page-break-inside:avoid; } }
+  </style>
+</head>
+<body>
+  <div class="pdf-header">
+    <div class="pdf-logo"><div class="dot"></div> AcadAI</div>
+    <div class="pdf-meta"><strong>${title}</strong>Generated: ${now}</div>
+  </div>
+  <div class="student-bar">
+    <div class="item"><span class="label">Student Name</span><span class="value">${name}</span></div>
+    <div class="item"><span class="label">Student ID</span><span class="value">${sid}</span></div>
+    <div class="item"><span class="label">Program</span><span class="value">${course}</span></div>
+    <div class="item"><span class="label">Year Level</span><span class="value">${year}</span></div>
+    <div class="item"><span class="label">Current GWA</span><span class="value" style="color:#1D9E75;">${gwa || '—'}</span></div>
+  </div>
+  ${body}
+  <div class="pdf-footer">
+    <span>AcadAI — AI Academic Advisor</span>
+    <span>Confidential — For Student Use Only</span>
+    <span>${now}</span>
+  </div>
+  <script>window.onload = function(){ window.print(); }<\/script>
+</body>
+</html>`;
+
+  const blob = new Blob([html], { type: 'text/html' });
+  const url  = URL.createObjectURL(blob);
+  const win  = window.open(url, '_blank');
+  if (!win) alert('Please allow pop-ups for this site to download PDFs.');
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
