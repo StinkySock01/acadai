@@ -21,6 +21,86 @@ function dataKey(key) { const s = getSession(); return s ? `acadai_${s.email}_${
 function getUserData(key, def) { const k = dataKey(key); return k ? JSON.parse(localStorage.getItem(k) || JSON.stringify(def)) : def; }
 function setUserData(key, val) { const k = dataKey(key); if (k) localStorage.setItem(k, JSON.stringify(val)); }
 
+// ---- MICRO-INTERACTIONS & POLISH ----
+function showToast(message, type = 'success') {
+  const toastContainer = document.getElementById('toast-container') || createToastContainer();
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  const iconMap = { success: 'fa-check-circle', error: 'fa-exclamation-circle', info: 'fa-info-circle' };
+  toast.innerHTML = `
+    <i class="fas ${iconMap[type]} toast-icon ${type}"></i>
+    <span class="toast-message">${message}</span>
+    <button class="toast-close" onclick="this.parentElement.remove()">×</button>
+  `;
+  toastContainer.appendChild(toast);
+  setTimeout(() => {
+    if (toast.parentElement) {
+      toast.classList.add('closing');
+      setTimeout(() => toast.remove(), 300);
+    }
+  }, 4000);
+}
+
+function createToastContainer() {
+  const container = document.createElement('div');
+  container.id = 'toast-container';
+  container.style.position = 'fixed';
+  container.style.bottom = '24px';
+  container.style.right = '24px';
+  container.style.zIndex = '9999';
+  container.style.display = 'flex';
+  container.style.flexDirection = 'column';
+  container.style.gap = '12px';
+  container.style.pointerEvents = 'none';
+  document.body.appendChild(container);
+  return container;
+}
+
+function animateCounter(element, target, duration = 800) {
+  const start = 0;
+  const increment = target / (duration / 16);
+  let current = start;
+  const timer = setInterval(() => {
+    current += increment;
+    if (current >= target) {
+      element.textContent = target;
+      clearInterval(timer);
+    } else {
+      element.textContent = Math.floor(current);
+    }
+  }, 16);
+}
+
+// ---- DARK MODE ----
+function initTheme() {
+  const savedTheme = localStorage.getItem('acadai_theme') || 'light';
+  setTheme(savedTheme);
+}
+
+function setTheme(theme) {
+  const html = document.documentElement;
+  const toggle = document.querySelector('.theme-toggle i');
+
+  if (theme === 'dark') {
+    html.setAttribute('data-theme', 'dark');
+    localStorage.setItem('acadai_theme', 'dark');
+    if (toggle) toggle.className = 'fas fa-sun';
+  } else {
+    html.removeAttribute('data-theme');
+    localStorage.setItem('acadai_theme', 'light');
+    if (toggle) toggle.className = 'fas fa-moon';
+  }
+}
+
+function toggleTheme() {
+  const html = document.documentElement;
+  const currentTheme = html.getAttribute('data-theme') || 'light';
+  const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+  setTheme(newTheme);
+  const message = newTheme === 'dark' ? 'Dark mode enabled 🌙' : 'Light mode enabled ☀️';
+  showToast(message, 'info');
+}
+
 // ---- AUTH ----
 function showLogin() {
   document.getElementById('register-page').style.display = 'none';
@@ -138,6 +218,10 @@ function launchApp(user) {
   showPage('dashboard', document.querySelector('.nav-btn'));
   renderDashboard();
   syncAdvisorGrades();
+  // FIX #1: re-run initTheme here so the toggle icon updates correctly
+  // after the navbar becomes visible
+  initTheme();
+  setTimeout(() => showToast(`Welcome back, ${user.firstName}! 🎓`, 'success'), 300);
 }
 
 // ---- NAVIGATION ----
@@ -178,8 +262,10 @@ function gradeColor(gwa) {
 function gradeRemark(gwa) {
   if (gwa === 5.0) return '<span class="chip chip-red">Failed</span>';
   if (gwa <= 1.5) return '<span class="chip chip-green">Excellent</span>';
-  if (gwa <= 2.0) return '<span class="chip chip-blue">Good</span>';
-  if (gwa <= 2.75) return '<span class="chip chip-amber">Average</span>';
+  if (gwa < 2.0) return '<span class="chip chip-blue">Good</span>';
+  if (gwa < 2.25) return '<span class="chip chip-blue">Average</span>';
+  if (gwa < 2.5) return '<span class="chip chip-amber">Below Average</span>';
+  if (gwa <= 2.75) return '<span class="chip chip-amber">Fair</span>';
   return '<span class="chip chip-red">Poor</span>';
 }
 
@@ -258,11 +344,12 @@ function renderDashboard() {
   const graded = subjects.filter(s => s.pct !== '' && s.pct !== null);
   if (graded.length) {
     const best = graded.reduce((a, b) => b.pct > a.pct ? b : a);
-    const worst = graded.reduce((a, b) => b.pct < a.pct ? b : a);
+    const needsAttention = graded.filter(s => pctToGWA(s.pct) >= 2.0);
+    const worst = needsAttention.length ? needsAttention.reduce((a, b) => b.pct < a.pct ? b : a) : null;
     document.getElementById('dash-best').textContent = best.name;
     document.getElementById('dash-best-grade').textContent = `GWA: ${pctToGWA(best.pct)} (${best.pct}%)`;
-    document.getElementById('dash-worst').textContent = worst.name;
-    document.getElementById('dash-worst-grade').textContent = `GWA: ${pctToGWA(worst.pct)} (${worst.pct}%)`;
+    document.getElementById('dash-worst').textContent = worst ? worst.name : '—';
+    document.getElementById('dash-worst-grade').textContent = worst ? `GWA: ${pctToGWA(worst.pct)} (${worst.pct}%)` : 'All grades are good!';
   }
 }
 
@@ -271,16 +358,21 @@ function updateGrade(index, value) {
   const pct = value === '' ? '' : Math.min(100, Math.max(0, parseFloat(value)));
   subjects[index].pct = pct === '' ? '' : pct;
   saveSubjects(subjects);
+  if (pct !== '') {
+    const gwa = pctToGWA(pct);
+    showToast(`${subjects[index].name} updated to ${pct}% (GWA: ${gwa})`, 'success');
+  }
   renderDashboard();
   syncAdvisorGrades();
-  // Also update milestone
   updateMilestones();
 }
 
 function deleteSubject(index) {
   const subjects = getSubjects();
+  const deleted = subjects[index].name;
   subjects.splice(index, 1);
   saveSubjects(subjects);
+  showToast(`${deleted} removed`, 'info');
   renderDashboard();
   syncAdvisorGrades();
 }
@@ -320,6 +412,7 @@ function confirmAddSubject() {
   subjects.push({ name, units, pct });
   saveSubjects(subjects);
   closeModals();
+  showToast(`${name} added successfully!`, 'success');
   renderDashboard();
   syncAdvisorGrades();
   updateMilestones();
@@ -389,21 +482,23 @@ function confirmAddTag() {
   tag.onclick = function(e) { if (!e.target.classList.contains('tag-remove')) toggleTag(this); };
   container.appendChild(tag);
   closeModals();
+  const tagType = currentTagTarget === 'interests' ? 'Interest' : 'Strength';
+  showToast(`${tagType} "${val}" added!`, 'success');
 }
 
 function removeTag(removeBtn) {
+  const tagName = removeBtn.parentElement.dataset.label;
   removeBtn.parentElement.remove();
+  showToast(`"${tagName}" removed`, 'info');
 }
 
 function toggleTag(el) { el.classList.toggle('selected'); }
 
 // ================================================================
-// AI RECOMMENDATIONS — Dynamic based on grades + interests + strengths
+// AI RECOMMENDATIONS
 // ================================================================
 let aiRunCount = 0;
 let lastAIRun = null;
-
-
 
 function runAI() {
   const subjects = getSubjects();
@@ -418,11 +513,9 @@ function runAI() {
   callClaudeAPI(subjects, interests, strengths);
 }
 
-async function callClaudeAPI(subjects, interests, strengths){
+async function callClaudeAPI(subjects, interests, strengths) {
   const gwa = computeGWA(subjects);
-  const gwaNum = gwa ? parseFloat(gwa) : null;
 
-  // Build a detailed profile string for Claude
   const subjectList = subjects.length
     ? subjects.map(s => {
         const g = s.pct !== '' ? ` — ${s.pct}% (GWA: ${pctToGWA(s.pct)})` : ' — no grade yet';
@@ -476,7 +569,6 @@ Rules:
 - Pure JSON only, no explanation outside the JSON`;
 
   try {
-    // Call our local server proxy (avoids CORS issues)
     const response = await fetch('/api/recommend', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -489,8 +581,6 @@ Rules:
     }
 
     const raw = data.content[0].text.trim();
-
-    // Strip markdown fences if present
     const jsonStr = raw.replace(/^```json\s*/,'').replace(/^```\s*/,'').replace(/```\s*$/,'').trim();
     const recs = JSON.parse(jsonStr);
 
@@ -520,7 +610,6 @@ function renderAIOutput(recs, interests, subjects) {
   const gwa = computeGWA(subjects);
   const gwaNum = gwa ? parseFloat(gwa) : null;
 
-  // GWA insight banner
   let gwaBanner = '';
   if (recs.gwa_insight) {
     const isGood = gwaNum && gwaNum <= 2.0;
@@ -617,7 +706,6 @@ function renderProgress() {
   const stats = document.getElementById('gwa-donut-stats');
   if (gwa) {
     const gwaNum = parseFloat(gwa);
-    // 1.0 = best, 5.0 = worst. Map to percentage for visual (invert: 1.0=100%, 5.0=0%)
     const pct = Math.max(0, Math.min(100, ((5.0 - gwaNum) / 4.0) * 100));
     const circ = 2 * Math.PI * 55;
     const dash = (pct / 100) * circ;
@@ -664,15 +752,15 @@ function renderReports() {
   const graded = subjects.filter(s => s.pct !== '');
   if (graded.length) {
     const best = graded.reduce((a,b) => b.pct>a.pct?b:a);
-    const worst = graded.reduce((a,b) => b.pct<a.pct?b:a);
+    const needsAttention = graded.filter(s => pctToGWA(s.pct) >= 2.0);
+    const worst = needsAttention.length ? needsAttention.reduce((a,b) => b.pct<a.pct?b:a) : null;
     document.getElementById('rpt-best').textContent = `${best.name} (${pctToGWA(best.pct)})`;
-    document.getElementById('rpt-worst').textContent = `${worst.name} (${pctToGWA(worst.pct)})`;
+    document.getElementById('rpt-worst').textContent = worst ? `${worst.name} (${pctToGWA(worst.pct)})` : 'No subjects need attention';
   } else {
     document.getElementById('rpt-best').textContent = '—';
     document.getElementById('rpt-worst').textContent = '—';
   }
 
-  // Standing
   const standEl = document.getElementById('rpt-standing');
   if (gwaNum) {
     if (gwaNum <= 1.75) standEl.innerHTML = '<span class="chip chip-green">Dean\'s List 🏅</span>';
@@ -681,7 +769,6 @@ function renderReports() {
     else standEl.innerHTML = '<span class="chip chip-red">Academic Alert</span>';
   } else { standEl.textContent = '—'; }
 
-  // Subject breakdown
   const listEl = document.getElementById('rpt-subject-list');
   if (!subjects.length) { listEl.innerHTML = '<p style="font-size:13px;color:var(--text-muted);padding:8px 0;">No subjects added yet.</p>'; }
   else {
@@ -695,13 +782,11 @@ function renderReports() {
     }).join('');
   }
 
-  // Interests & Strengths
   const interests = [...document.querySelectorAll('#interests-tags .tag.selected')].map(t => (t.dataset.label||t.textContent.replace('×','').trim()));
   const strengths = [...document.querySelectorAll('#strengths-tags .tag.selected')].map(t => (t.dataset.label||t.textContent.replace('×','').trim()));
   document.getElementById('rpt-interests').textContent = interests.join(', ') || '—';
   document.getElementById('rpt-strengths').textContent = strengths.join(', ') || '—';
 
-  // AI log
   const aiCount = getUserData('ai_count', 0);
   const aiLast = getUserData('ai_last', null);
   document.getElementById('rpt-ai-count').textContent = aiCount;
@@ -709,21 +794,25 @@ function renderReports() {
 }
 
 function closeModals() { document.getElementById('modal-overlay').style.display = 'none'; }
+
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') closeModals();
   if (e.key === 'Enter' && document.getElementById('login-page').style.display !== 'none') doLogin();
 });
 
 // ---- AUTO LOGIN ----
+// FIX: initTheme() runs first so the page never flashes the wrong theme.
+// If a session exists, launchApp() also calls initTheme() to update the
+// toggle icon after the navbar becomes visible.
 window.addEventListener('load', () => {
-  const user = getSession();
-  if (user) launchApp(user);
+  initTheme();
   aiRunCount = getUserData('ai_count', 0);
   lastAIRun = getUserData('ai_last', null);
+  const user = getSession();
+  if (user) launchApp(user);
 });
 
-
-
+// ---- PDF DOWNLOAD ----
 function downloadPDF(type) {
   const user = getSession();
   const subjects = getSubjects();
@@ -752,8 +841,10 @@ function downloadPDF(type) {
   function remarkLabel(g) {
     if (g === 5.0)  return 'Failed';
     if (g <= 1.5)   return 'Excellent';
-    if (g <= 2.0)   return 'Good';
-    if (g <= 2.75)  return 'Average';
+    if (g < 2.0)    return 'Good';
+    if (g < 2.25)   return 'Average';
+    if (g < 2.5)    return 'Below Average';
+    if (g <= 2.75)  return 'Fair';
     return 'Poor';
   }
 
@@ -773,7 +864,8 @@ function downloadPDF(type) {
 
   const graded = subjects.filter(s => s.pct !== '');
   const bestSubject = graded.length ? graded.reduce((a,b) => b.pct > a.pct ? b : a) : null;
-  const worstSubject = graded.length ? graded.reduce((a,b) => b.pct < a.pct ? b : a) : null;
+  const needsAttention = graded.filter(s => pctToGWA(s.pct) >= 2.0);
+  const worstSubject = needsAttention.length ? needsAttention.reduce((a,b) => b.pct < a.pct ? b : a) : null;
 
   const sections = {
     academic: `
@@ -788,7 +880,6 @@ function downloadPDF(type) {
           <tr><td>Date Generated</td><td class="val">${now}</td></tr>
         </table>
       </div>`,
-
     subjects: `
       <div class="pdf-section">
         <h2><span class="icon">📚</span> Subject Breakdown</h2>
@@ -803,7 +894,6 @@ function downloadPDF(type) {
           </tfoot>
         </table>
       </div>`,
-
     interests: `
       <div class="pdf-section">
         <h2><span class="icon">⭐</span> Interests &amp; Strengths</h2>
@@ -812,7 +902,6 @@ function downloadPDF(type) {
           <tr><td>Strengths</td><td class="val">${strengths.join(', ') || '—'}</td></tr>
         </table>
       </div>`,
-
     ailog: `
       <div class="pdf-section">
         <h2><span class="icon">🤖</span> AI Recommendation Log</h2>
@@ -832,12 +921,7 @@ function downloadPDF(type) {
     title = 'Complete Academic Report';
   } else {
     body = sections[type];
-    const titles = {
-      academic: 'Academic Summary',
-      subjects: 'Subject Breakdown',
-      interests: 'Interests & Strengths',
-      ailog: 'AI Recommendation Log'
-    };
+    const titles = { academic:'Academic Summary', subjects:'Subject Breakdown', interests:'Interests & Strengths', ailog:'AI Recommendation Log' };
     title = titles[type];
   }
 
