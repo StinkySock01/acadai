@@ -80,7 +80,7 @@ function initTheme() {
 function setTheme(theme) {
   const html = document.documentElement;
   const toggle = document.querySelector('.theme-toggle i');
-
+  
   if (theme === 'dark') {
     html.setAttribute('data-theme', 'dark');
     localStorage.setItem('acadai_theme', 'dark');
@@ -218,9 +218,6 @@ function launchApp(user) {
   showPage('dashboard', document.querySelector('.nav-btn'));
   renderDashboard();
   syncAdvisorGrades();
-  // FIX #1: re-run initTheme here so the toggle icon updates correctly
-  // after the navbar becomes visible
-  initTheme();
   setTimeout(() => showToast(`Welcome back, ${user.firstName}! 🎓`, 'success'), 300);
 }
 
@@ -253,10 +250,11 @@ function pctToGWA(pct) {
 }
 
 function gradeColor(gwa) {
-  if (gwa <= 1.5) return '#1D9E75';
-  if (gwa <= 2.0) return '#378ADD';
-  if (gwa <= 2.75) return '#EF9F27';
-  return '#EF4444';
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  if (gwa <= 1.5) return isDark ? '#5DCAA5' : '#1D9E75';
+  if (gwa <= 2.0) return isDark ? '#60A5FA' : '#378ADD';
+  if (gwa <= 2.75) return isDark ? '#FCD34D' : '#EF9F27';
+  return isDark ? '#F87171' : '#EF4444';
 }
 
 function gradeRemark(gwa) {
@@ -344,6 +342,7 @@ function renderDashboard() {
   const graded = subjects.filter(s => s.pct !== '' && s.pct !== null);
   if (graded.length) {
     const best = graded.reduce((a, b) => b.pct > a.pct ? b : a);
+    // Only show worst subject if it actually needs attention (GWA >= 2.0)
     const needsAttention = graded.filter(s => pctToGWA(s.pct) >= 2.0);
     const worst = needsAttention.length ? needsAttention.reduce((a, b) => b.pct < a.pct ? b : a) : null;
     document.getElementById('dash-best').textContent = best.name;
@@ -495,10 +494,12 @@ function removeTag(removeBtn) {
 function toggleTag(el) { el.classList.toggle('selected'); }
 
 // ================================================================
-// AI RECOMMENDATIONS
+// AI RECOMMENDATIONS — Dynamic based on grades + interests + strengths
 // ================================================================
 let aiRunCount = 0;
 let lastAIRun = null;
+
+
 
 function runAI() {
   const subjects = getSubjects();
@@ -513,9 +514,11 @@ function runAI() {
   callClaudeAPI(subjects, interests, strengths);
 }
 
-async function callClaudeAPI(subjects, interests, strengths) {
+async function callClaudeAPI(subjects, interests, strengths){
   const gwa = computeGWA(subjects);
+  const gwaNum = gwa ? parseFloat(gwa) : null;
 
+  // Build a detailed profile string for Claude
   const subjectList = subjects.length
     ? subjects.map(s => {
         const g = s.pct !== '' ? ` — ${s.pct}% (GWA: ${pctToGWA(s.pct)})` : ' — no grade yet';
@@ -569,6 +572,7 @@ Rules:
 - Pure JSON only, no explanation outside the JSON`;
 
   try {
+    // Call our local server proxy (avoids CORS issues)
     const response = await fetch('/api/recommend', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -581,6 +585,8 @@ Rules:
     }
 
     const raw = data.content[0].text.trim();
+
+    // Strip markdown fences if present
     const jsonStr = raw.replace(/^```json\s*/,'').replace(/^```\s*/,'').replace(/```\s*$/,'').trim();
     const recs = JSON.parse(jsonStr);
 
@@ -610,6 +616,7 @@ function renderAIOutput(recs, interests, subjects) {
   const gwa = computeGWA(subjects);
   const gwaNum = gwa ? parseFloat(gwa) : null;
 
+  // GWA insight banner
   let gwaBanner = '';
   if (recs.gwa_insight) {
     const isGood = gwaNum && gwaNum <= 2.0;
@@ -706,6 +713,7 @@ function renderProgress() {
   const stats = document.getElementById('gwa-donut-stats');
   if (gwa) {
     const gwaNum = parseFloat(gwa);
+    // 1.0 = best, 5.0 = worst. Map to percentage for visual (invert: 1.0=100%, 5.0=0%)
     const pct = Math.max(0, Math.min(100, ((5.0 - gwaNum) / 4.0) * 100));
     const circ = 2 * Math.PI * 55;
     const dash = (pct / 100) * circ;
@@ -714,6 +722,7 @@ function renderProgress() {
     arc.setAttribute('stroke', col);
     txt.textContent = gwa;
     txt.setAttribute('fill', col);
+    document.querySelector('#gwa-donut-arc ~ text, svg text:last-of-type')
     stats.innerHTML = `<span>GWA: ${gwa}</span><span>${gwaNum <= 2.0 ? 'Good Standing ✓' : 'Keep going!'}</span>`;
   } else {
     arc.setAttribute('stroke-dasharray', '0 346');
@@ -752,6 +761,7 @@ function renderReports() {
   const graded = subjects.filter(s => s.pct !== '');
   if (graded.length) {
     const best = graded.reduce((a,b) => b.pct>a.pct?b:a);
+    // Only show worst subject if it actually needs attention (GWA >= 2.0)
     const needsAttention = graded.filter(s => pctToGWA(s.pct) >= 2.0);
     const worst = needsAttention.length ? needsAttention.reduce((a,b) => b.pct<a.pct?b:a) : null;
     document.getElementById('rpt-best').textContent = `${best.name} (${pctToGWA(best.pct)})`;
@@ -761,6 +771,7 @@ function renderReports() {
     document.getElementById('rpt-worst').textContent = '—';
   }
 
+  // Standing
   const standEl = document.getElementById('rpt-standing');
   if (gwaNum) {
     if (gwaNum <= 1.75) standEl.innerHTML = '<span class="chip chip-green">Dean\'s List 🏅</span>';
@@ -769,6 +780,7 @@ function renderReports() {
     else standEl.innerHTML = '<span class="chip chip-red">Academic Alert</span>';
   } else { standEl.textContent = '—'; }
 
+  // Subject breakdown
   const listEl = document.getElementById('rpt-subject-list');
   if (!subjects.length) { listEl.innerHTML = '<p style="font-size:13px;color:var(--text-muted);padding:8px 0;">No subjects added yet.</p>'; }
   else {
@@ -782,11 +794,13 @@ function renderReports() {
     }).join('');
   }
 
+  // Interests & Strengths
   const interests = [...document.querySelectorAll('#interests-tags .tag.selected')].map(t => (t.dataset.label||t.textContent.replace('×','').trim()));
   const strengths = [...document.querySelectorAll('#strengths-tags .tag.selected')].map(t => (t.dataset.label||t.textContent.replace('×','').trim()));
   document.getElementById('rpt-interests').textContent = interests.join(', ') || '—';
   document.getElementById('rpt-strengths').textContent = strengths.join(', ') || '—';
 
+  // AI log
   const aiCount = getUserData('ai_count', 0);
   const aiLast = getUserData('ai_last', null);
   document.getElementById('rpt-ai-count').textContent = aiCount;
@@ -794,25 +808,23 @@ function renderReports() {
 }
 
 function closeModals() { document.getElementById('modal-overlay').style.display = 'none'; }
-
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') closeModals();
   if (e.key === 'Enter' && document.getElementById('login-page').style.display !== 'none') doLogin();
 });
 
 // ---- AUTO LOGIN ----
-// FIX: initTheme() runs first so the page never flashes the wrong theme.
-// If a session exists, launchApp() also calls initTheme() to update the
-// toggle icon after the navbar becomes visible.
 window.addEventListener('load', () => {
   initTheme();
-  aiRunCount = getUserData('ai_count', 0);
-  lastAIRun = getUserData('ai_last', null);
   const user = getSession();
   if (user) launchApp(user);
+  aiRunCount = getUserData('ai_count', 0);
+  lastAIRun = getUserData('ai_last', null);
+  setTimeout(() => showToast(`Welcome back, ${user.firstName}! 🎓`, 'success'), 300); initTheme(); // ← add this line
 });
 
-// ---- PDF DOWNLOAD ----
+
+
 function downloadPDF(type) {
   const user = getSession();
   const subjects = getSubjects();
@@ -864,6 +876,7 @@ function downloadPDF(type) {
 
   const graded = subjects.filter(s => s.pct !== '');
   const bestSubject = graded.length ? graded.reduce((a,b) => b.pct > a.pct ? b : a) : null;
+  // Only show worst subject if it actually needs attention (GWA >= 2.0)
   const needsAttention = graded.filter(s => pctToGWA(s.pct) >= 2.0);
   const worstSubject = needsAttention.length ? needsAttention.reduce((a,b) => b.pct < a.pct ? b : a) : null;
 
@@ -880,6 +893,7 @@ function downloadPDF(type) {
           <tr><td>Date Generated</td><td class="val">${now}</td></tr>
         </table>
       </div>`,
+
     subjects: `
       <div class="pdf-section">
         <h2><span class="icon">📚</span> Subject Breakdown</h2>
@@ -894,6 +908,7 @@ function downloadPDF(type) {
           </tfoot>
         </table>
       </div>`,
+
     interests: `
       <div class="pdf-section">
         <h2><span class="icon">⭐</span> Interests &amp; Strengths</h2>
@@ -902,6 +917,7 @@ function downloadPDF(type) {
           <tr><td>Strengths</td><td class="val">${strengths.join(', ') || '—'}</td></tr>
         </table>
       </div>`,
+
     ailog: `
       <div class="pdf-section">
         <h2><span class="icon">🤖</span> AI Recommendation Log</h2>
@@ -921,7 +937,12 @@ function downloadPDF(type) {
     title = 'Complete Academic Report';
   } else {
     body = sections[type];
-    const titles = { academic:'Academic Summary', subjects:'Subject Breakdown', interests:'Interests & Strengths', ailog:'AI Recommendation Log' };
+    const titles = {
+      academic: 'Academic Summary',
+      subjects: 'Subject Breakdown',
+      interests: 'Interests & Strengths',
+      ailog: 'AI Recommendation Log'
+    };
     title = titles[type];
   }
 
